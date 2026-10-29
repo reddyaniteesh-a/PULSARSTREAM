@@ -1,0 +1,44 @@
+# Environment Variables & Secrets (CRITICAL)
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+secrets.json
+
+# Python / FastAPI / PyTorch
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+venv/
+.venv/
+env/
+.pytest_cache/
+
+# NVIDIA TensorRT / Triton / Heavy AI Model Weights
+# (Keep config files, ignore massive local binary weights)
+*.trt
+*.engine
+*.onnx
+*.pt
+*.pth
+*.safetensors
+*.bin
+triton_model_repository/*/1/model.plan
+
+# Node / Frontend (if using React/Vite alongside index.html)
+node_modules/
+dist/
+build/
+.next/
+.vercel/
+.netlify/
+
+# OS & Editor Files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.log
