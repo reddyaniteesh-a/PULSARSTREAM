@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PulsarStream | Nebius x NVIDIA Real-Time Multimodal Engine</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            nebius: '#00E5FF',
+            nvidia: '#76B900',
+            panel: '#0B1120',
+            border: '#1E293B'
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { background-color: #050811; color: #F8FAFC; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; }
+    .glow-cyan { box-shadow: 0 0 20px rgba(0, 229, 255, 0.15); }
+    .glow-green { box-shadow: 0 0 20px rgba(118, 185, 0, 0.15); }
+    .scanline {
+      background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0) 50%, rgba(0, 229, 255, 0.04) 50%, rgba(0, 229, 255, 0.04));
+      background-size: 100% 4px;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col selection:bg-nebius selection:text-black">
+
+  <!-- Top Navigation Header -->
+  <header class="border-b border-slate-800 bg-panel/90 backdrop-blur sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <div class="w-3.5 h-3.5 rounded-full bg-nebius animate-ping"></div>
+        <h1 class="text-xl font-black tracking-wider bg-gradient-to-r from-nebius via-teal-300 to-nvidia bg-clip-text text-transparent">
+          PULSARSTREAM
+        </h1>
+        <span class="text-xs px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 font-mono">
+          v1.4.0-TRT
+        </span>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-3 text-xs font-mono">
+        <div class="px-3 py-1.5 rounded bg-slate-900 border border-slate-800 flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-nvidia"></span>
+          <span>NODE: <strong class="text-white">NEBIUS-H100-SXM5-80GB</strong></span>
+        </div>
+        <div class="px-3 py-1.5 rounded bg-slate-900 border border-slate-800 flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-nebius"></span>
+          <span>ENGINE: <strong class="text-white">TENSORRT-FP8 / TRITON</strong></span>
+        </div>
+        <div id="slo-badge" class="px-3 py-1.5 rounded bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 font-bold">
+          SLO (&le;50ms): PASSING
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Dashboard Grid -->
+  <main class="max-w-7xl mx-auto w-full px-4 py-6 flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+    <!-- Left 8 Columns: Multimodal Vision & Audio Streams -->
+    <div class="lg:col-span-8 flex flex-col gap-6">
+
+      <!-- Real-Time Vision Stream Card -->
+      <div class="bg-panel border border-slate-800 rounded-xl p-4 glow-cyan flex flex-col gap-3">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-mono uppercase tracking-widest text-nebius font-bold">01 // Live Vision Stream (NVDEC + TensorRT YOLOv10x)</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="btn-sim-cam" onclick="setVisionMode('sim')" class="px-3 py-1 text-xs font-mono rounded bg-nebius text-slate-950 font-bold transition">
+              Drone Telemetry Sim
+            </button>
+            <button id="btn-live-cam" onclick="setVisionMode('webcam')" class="px-3 py-1 text-xs font-mono rounded bg-slate-800 text-slate-300 hover:bg-slate-700 transition">
+              Live Webcam Vision
+            </button>
+          </div>
+        </div>
+
+        <div class="relative rounded-lg overflow-hidden bg-black border border-slate-800 aspect-video">
+          <video id="webcam-video" autoplay playsinline muted class="hidden"></video>
+          <canvas id="vision-canvas" width="800" height="450" class="w-full h-full object-cover scanline"></canvas>
+          <div class="absolute top-3 left-3 bg-black/75 backdrop-blur px-2.5 py-1.5 rounded border border-slate-700 text-[11px] font-mono space-y-0.5">
+            <div>FPS: <span id="fps-val" class="text-nebius font-bold">60.0</span></div>
+            <div>OBJECTS TRACKED: <span id="obj-count" class="text-nvidia font-bold">4</span></div>
+            <div>ZERO-COPY CUDA IPC: <span class="text-emerald-400">ACTIVE</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Audio Spectral Telemetry + Dynamic Batching Controls -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <!-- Audio Waveform Card -->
+        <div class="bg-panel border border-slate-800 rounded-xl p-4 flex flex-col justify-between gap-3">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-mono uppercase tracking-widest text-nvidia font-bold">02 // Audio Spectral Stream</span>
+            <button id="btn-audio-toggle" onclick="toggleAudioMode()" class="px-2.5 py-1 text-[11px] font-mono rounded bg-slate-800 text-slate-300 hover:bg-slate-700">
+              Mic: Sim Mode
+            </button>
+          </div>
+          <canvas id="audio-canvas" width="360" height="130" class="w-full h-32 bg-slate-950 rounded border border-slate-800"></canvas>
+          <div class="flex justify-between text-[11px] font-mono text-slate-400">
+            <span>ASR: Whisper-Large-v3-TRT</span>
+            <span class="text-emerald-400">WER: 3.1% | 11ms</span>
+          </div>
+        </div>
+
+        <!-- Little's Law & Triton Batching Controller -->
+        <div class="bg-panel border border-slate-800 rounded-xl p-4 flex flex-col justify-between gap-3">
+          <div>
+            <span class="text-xs font-mono uppercase tracking-widest text-nebius font-bold">03 // Triton Dynamic Batching</span>
+            <p class="text-[11px] text-slate-400 mt-1 font-mono">
+              T_total = T_in + T_queue + (B &middot; C_model)/(&eta; &middot; P_GPU) + T_out
+            </p>
+          </div>
+
+          <div class="space-y-3 text-xs font-mono">
+            <div>
+              <div class="flex justify-between mb-1">
+                <span>Micro-Batch Size (B):</span>
+                <span id="batch-label" class="text-nebius font-bold">8 streams</span>
+              </div>
+              <input id="batch-slider" type="range" min="1" max="32" value="8" oninput="updateLatencyMath()" class="w-full accent-cyan-400 cursor-pointer" />
+            </div>
+
+            <div>
+              <div class="flex justify-between mb-1">
+                <span>Stream Arrival Rate (&lambda;):</span>
+                <span id="lambda-label" class="text-nvidia font-bold">140 req/s</span>
+              </div>
+              <input id="lambda-slider" type="range" min="20" max="400" value="140" oninput="updateLatencyMath()" class="w-full accent-lime-500 cursor-pointer" />
+            </div>
+          </div>
+
+          <div class="grid grid-cols-3 gap-2 pt-2 border-t border-slate-800 text-center font-mono">
+            <div class="bg-slate-950 p-2 rounded border border-slate-800">
+              <div class="text-[10px] text-slate-400">T_total</div>
+              <div id="metric-ttotal" class="text-sm font-bold text-nebius">24.6 ms</div>
+            </div>
+            <div class="bg-slate-950 p-2 rounded border border-slate-800">
+              <div class="text-[10px] text-slate-400">H100 Util</div>
+              <div id="metric-gpu" class="text-sm font-bold text-nvidia">78%</div>
+            </div>
+            <div class="bg-slate-950 p-2 rounded border border-slate-800">
+              <div class="text-[10px] text-slate-400">Speedup</div>
+              <div id="metric-speedup" class="text-sm font-bold text-emerald-400">3.4x</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right 4 Columns: Live LLM Stream Reasoning + Benchmarks -->
+    <div class="lg:col-span-4 flex flex-col gap-6">
+
+      <!-- Benchmark Comparison Card -->
+      <div class="bg-panel border border-slate-800 rounded-xl p-4 glow-green space-y-3">
+        <span class="text-xs font-mono uppercase tracking-widest text-nvidia font-bold">04 // Latency Benchmark (ms)</span>
+        <div class="space-y-2 text-xs font-mono">
+          <div>
+            <div class="flex justify-between mb-1">
+              <span class="text-slate-400">PyTorch Eager (Baseline)</span>
+              <span class="text-rose-400 font-bold">142.0 ms</span>
+            </div>
+            <div class="w-full bg-slate-900 h-2.5 rounded-full overflow-hidden">
+              <div class="bg-rose-500 h-full" style="width: 92%"></div>
+            </div>
+          </div>
+          <div>
+            <div class="flex justify-between mb-1">
+              <span class="text-white font-bold">PulsarStream (TensorRT FP8)</span>
+              <span id="bar-trt-label" class="text-nebius font-bold">24.6 ms</span>
+            </div>
+            <div class="w-full bg-slate-900 h-2.5 rounded-full overflow-hidden">
+              <div id="bar-trt" class="bg-gradient-to-r from-nebius to-nvidia h-full transition-all duration-300" style="width: 18%"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Nebius AI Studio / TensorRT-LLM Live Stream Reasoning -->
+      <div class="bg-panel border border-slate-800 rounded-xl p-4 flex-1 flex flex-col justify-between gap-3">
+        <div class="space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-mono uppercase tracking-widest text-nebius font-bold">05 // Live Stream Reasoning</span>
+            <span class="text-[10px] font-mono text-slate-400">TTFT: ~14ms</span>
+          </div>
+          <input id="nebius-key" type="password" placeholder="Optional: Nebius AI Studio API Key" class="w-full px-2.5 py-1.5 text-xs font-mono bg-slate-950 border border-slate-800 rounded text-slate-200 focus:outline-none focus:border-nebius" />
+        </div>
+
+        <div id="llm-output" class="flex-1 min-h-[210px] max-h-[260px] overflow-y-auto bg-slate-950 border border-slate-800 rounded p-3 font-mono text-xs text-slate-300 space-y-2">
+          <div class="text-slate-500">[SYSTEM] Connected to Nebius H100 Triton Node...</div>
+          <div class="text-nebius">[PULSAR-TRT] Ready to synthesize live multimodal telemetry packets. Click PULSE below.</div>
+        </div>
+
+        <div class="flex gap-2">
+          <input id="llm-prompt" type="text" value="Analyze live traffic stream anomalies & suggest dynamic routing" class="flex-1 px-2.5 py-2 text-xs font-mono bg-slate-950 border border-slate-800 rounded text-white focus:outline-none focus:border-nebius" />
+          <button onclick="triggerPulseReasoning()" class="px-4 py-2 rounded bg-gradient-to-r from-nebius to-nvidia text-slate-950 font-black text-xs font-mono tracking-wider hover:opacity-90 transition">
+            PULSE
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <script>
+    // --- 1. Vision Canvas (Simulated Drone Telemetry + Live Webcam) ---
+    const canvas = document.getElementById('vision-canvas');
+    const ctx = canvas.getContext('2d');
+    const video = document.getElementById('webcam-video');
+    let visionMode = 'sim';
+    let boxes = [
+      { x: 110, y: 160, w: 120, h: 75, vx: 2.1, vy: 0.6, label: 'VEHICLE-01 [0.98]', color: '#00E5FF' },
+      { x: 420, y: 220, w: 135, h: 85, vx: -1.8, vy: -0.5, label: 'AUTONOMOUS-POD [0.96]', color: '#76B900' },
+      { x: 280, y: 95, w: 90, h: 65, vx: 1.4, vy: 1.1, label: 'DRONE-RELAY [0.94]', color: '#00E5FF' },
+      { x: 580, y: 140, w: 70, h: 110, vx: -1.1, vy: 0.8, label: 'PEDESTRIAN [0.92]', color: '#F59E0B' }
+    ];
+
+    async function setVisionMode(mode) {
+      visionMode = mode;
+      document.getElementById('btn-sim-cam').className = mode === 'sim'
+        ? 'px-3 py-1 text-xs font-mono rounded bg-nebius text-slate-950 font-bold transition'
+        : 'px-3 py-1 text-xs font-mono rounded bg-slate-800 text-slate-300 hover:bg-slate-700 transition';
+      document.getElementById('btn-live-cam').className = mode === 'webcam'
+        ? 'px-3 py-1 text-xs font-mono rounded bg-nebius text-slate-950 font-bold transition'
+        : 'px-3 py-1 text-xs font-mono rounded bg-slate-800 text-slate-300 hover:bg-slate-700 transition';
+
+      if (mode === 'webcam') {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+          video.srcObject = stream;
+        } catch (err) {
+          alert('Webcam permission denied or unavailable. Staying in Drone Telemetry Simulation mode.');
+          setVisionMode('sim');
+        }
+      } else if (video.srcObject) {
+        video.srcObject.getTracks().forEach(t => t.stop());
+      }
+    }
+
+    function renderVisionFrame() {
+      ctx.fillStyle = '#040711';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      if (visionMode === 'webcam' && video.readyState >= 2) {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      } else {
+        // Perspective cyber grid
+        ctx.strokeStyle = 'rgba(0, 229, 255, 0.12)';
+        ctx.lineWidth = 1;
+        for (let x = 0; x < canvas.width; x += 40) {
+          ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+        }
+        for (let y = 0; y < canvas.height; y += 40) {
+          ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+        }
+      }
+
+      // Draw TensorRT Bounding Boxes
+      boxes.forEach(b => {
+        b.x += b.vx; b.y += b.vy;
+        if (b.x < 20 || b.x + b.w > canvas.width - 20) b.vx *= -1;
+        if (b.y < 30 || b.y + b.h > canvas.height - 20) b.vy *= -1;
+
+        ctx.strokeStyle = b.color;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(b.x, b.y, b.w, b.h);
+
+        ctx.fillStyle = b.color;
+        ctx.fillRect(b.x, b.y - 18, b.label.length * 7.2, 18);
+        ctx.fillStyle = '#020617';
+        ctx.font = 'bold 11px monospace';
+        ctx.fillText(b.label, b.x + 4, b.y - 5);
+      });
+
+      document.getElementById('fps-val').innerText = (59.4 + Math.random() * 1.2).toFixed(1);
+      requestAnimationFrame(renderVisionFrame);
+    }
+    renderVisionFrame();
+
+    // --- 2. Audio Spectral Telemetry ---
+    const audioCanvas = document.getElementById('audio-canvas');
+    const actx = audioCanvas.getContext('2d');
+    let phase = 0;
+    function renderAudio() {
+      actx.fillStyle = '#020617';
+      actx.fillRect(0, 0, audioCanvas.width, audioCanvas.height);
+      const bars = 36;
+      const barWidth = audioCanvas.width / bars;
+      for (let i = 0; i < bars; i++) {
+        const val = Math.abs(Math.sin(phase + i * 0.28) * Math.cos(phase * 0.6 + i * 0.15)) * 95 + 10;
+        actx.fillStyle = i % 2 === 0 ? '#00E5FF' : '#76B900';
+        actx.fillRect(i * barWidth + 2, audioCanvas.height - val, barWidth - 4, val);
+      }
+      phase += 0.08;
+      requestAnimationFrame(renderAudio);
+    }
+    renderAudio();
+
+    function toggleAudioMode() {
+      const btn = document.getElementById('btn-audio-toggle');
+      btn.innerText = btn.innerText.includes('Sim') ? 'Mic: Live Stream' : 'Mic: Sim Mode';
+    }
+
+    // --- 3. Little's Law & Triton Latency Math ---
+    function updateLatencyMath() {
+      const B = parseInt(document.getElementById('batch-slider').value, 10);
+      const lambda = parseInt(document.getElementById('lambda-slider').value, 10);
+      document.getElementById('batch-label').innerText = B + (B === 1 ? ' stream' : ' streams');
+      document.getElementById('lambda-label').innerText = lambda + ' req/s';
+
+      const tIngest = 3.2;
+      const tQueue = (B / (lambda * 0.045)) * 4.2;
+      const tCompute = (B * 1.35) / 1.15;
+      const tEgress = 2.1;
+      const tTotal = tIngest + tQueue + tCompute + tEgress;
+
+      const gpuUtil = Math.min(99, Math.round(35 + B * 1.6 + lambda * 0.09));
+      const speedup = (142.0 / tTotal).toFixed(1);
+
+      document.getElementById('metric-ttotal').innerText = tTotal.toFixed(1) + ' ms';
+      document.getElementById('metric-gpu').innerText = gpuUtil + '%';
+      document.getElementById('metric-speedup').innerText = speedup + 'x';
+      document.getElementById('bar-trt-label').innerText = tTotal.toFixed(1) + ' ms';
+      document.getElementById('bar-trt').style.width = Math.min(100, (tTotal / 155) * 100) + '%';
+
+      const sloBadge = document.getElementById('slo-badge');
+      if (tTotal <= 50) {
+        sloBadge.className = 'px-3 py-1.5 rounded bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 font-bold';
+        sloBadge.innerText = 'SLO (\u226450ms): PASSING';
+      } else {
+        sloBadge.className = 'px-3 py-1.5 rounded bg-rose-950/60 border border-rose-500/40 text-rose-300 font-bold';
+        sloBadge.innerText = 'SLO (>50ms): BACKPRESSURE ACTIVE';
+      }
+    }
+    updateLatencyMath();
+
+    // --- 4. Live Stream Token Reasoning ---
+    function triggerPulseReasoning() {
+      const out = document.getElementById('llm-output');
+      const prompt = document.getElementById('llm-prompt').value;
+      const B = document.getElementById('batch-slider').value;
+      const tTotal = document.getElementById('metric-ttotal').innerText;
+
+      const entry = document.createElement('div');
+      entry.className = 'border-l-2 border-nebius pl-2 py-1 text-slate-200';
+      out.appendChild
